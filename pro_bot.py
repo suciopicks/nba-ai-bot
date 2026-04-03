@@ -285,7 +285,7 @@ def collect_market_candidates(event):
 
         discrepancy = round((model_prob - best_prob) * 100, 1)
 
-        if discrepancy < 4.0:
+        if discrepancy < 1.0:
             continue
 
         tag = "🔥 MAX PLAY" if discrepancy >= 8 else "✅ STRONG"
