@@ -127,5 +127,5 @@ def run_bot():
 # =========================
 if __name__ == "__main__":
     while True:
-        run_bot()
+        run_bot(send_discord("✅ Bot is alive and connected"))
         time.sleep(300)  # runs every 5 minutes
