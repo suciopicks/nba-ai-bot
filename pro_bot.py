@@ -51,11 +51,20 @@ def get_props():
 
 
 def send_discord(message):
+    print("TRYING TO SEND TO DISCORD")
+
     if not WEBHOOK_URL:
-        print("Missing WEBHOOK_URL")
+        print("❌ Missing WEBHOOK_URL")
         return
 
-    response = requests.post(WEBHOOK_URL, json={"content": message}, timeout=15)
+    print("✅ Webhook found:", WEBHOOK_URL[:30])
+
+    response = requests.post(
+        WEBHOOK_URL,
+        json={"content": message},
+        timeout=15,
+    )
+
     print("Discord status:", response.status_code)
     print("Discord response:", response.text)
 
@@ -104,7 +113,7 @@ def run_bot():
     send_discord(message)
 
 
-if __name__ == "__main__":
+
     if __name__ == "__main__":
     print("RUNNING MAIN")
     send_discord("✅ BOT TEST MESSAGE WORKING")
