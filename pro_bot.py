@@ -343,7 +343,7 @@ if __name__ == "__main__":
         try:
             run_bot()
             print("Sleeping...", flush=True)
-            time.sleep(300)
+            time.sleep(10)
         except Exception as e:
             print(f"ERROR: {e}", flush=True)
             time.sleep(30)
