@@ -1,12 +1,12 @@
 print("🔥 BOT IS LIVE 🔥")
 
 import os
-import requests
 import time
 from datetime import datetime
 
+import requests
+
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 
 sent_plays = set()
 
@@ -33,20 +33,20 @@ def get_props():
             "player": "Donovan Mitchell",
             "line": 25.5,
             "odds": -120,
-            "projection": 28.2
+            "projection": 28.2,
         },
         {
             "player": "Nikola Jokic",
             "line": 10.5,
             "odds": -115,
-            "projection": 11.6
+            "projection": 11.6,
         },
         {
             "player": "Christian Braun",
             "line": 12.5,
             "odds": -110,
-            "projection": 10.2
-        }
+            "projection": 10.2,
+        },
     ]
 
 
@@ -55,7 +55,7 @@ def send_discord(message):
         print("Missing WEBHOOK_URL")
         return
 
-    response = requests.post(WEBHOOK_URL, json={"content": message})
+    response = requests.post(WEBHOOK_URL, json={"content": message}, timeout=15)
     print("Discord status:", response.status_code)
     print("Discord response:", response.text)
 
@@ -75,14 +75,16 @@ def run_bot():
 
         if edge >= 6 and play_key not in sent_plays:
             sent_plays.add(play_key)
-            plays.append({
-                "player": p["player"],
-                "line": p["line"],
-                "projection": round(p["projection"], 1),
-                "edge": round(edge, 1),
-                "model": round(model_p * 100, 1),
-                "vegas": round(vegas_p * 100, 1)
-            })
+            plays.append(
+                {
+                    "player": p["player"],
+                    "line": p["line"],
+                    "projection": round(p["projection"], 1),
+                    "edge": round(edge, 1),
+                    "model": round(model_p * 100, 1),
+                    "vegas": round(vegas_p * 100, 1),
+                }
+            )
 
     if not plays:
         print("No plays found. Sending test message.")
@@ -103,6 +105,7 @@ def run_bot():
 
 
 if __name__ == "__main__":
+    run_bot()
     while True:
-        run_bot()
         time.sleep(300)
+        run_bot()
