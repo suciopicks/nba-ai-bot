@@ -287,7 +287,7 @@ def collect_market_candidates(event):
         
         print(f"{player} {side} {line} | proj={projection} | model={round(model_prob*100,1)}% | book={round(best_prob*100,1)}% | edge={discrepancy}%", flush=True)
 
-        if discrepancy < 2.5:
+        if discrepancy < 6.0:
             continue
 
         tag = "🔥 MAX PLAY" if discrepancy >= 8 else "✅ STRONG"
