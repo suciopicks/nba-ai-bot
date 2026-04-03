@@ -287,7 +287,11 @@ def collect_market_candidates(event):
         
         print(f"{player} {side} {line} | proj={projection} | model={round(model_prob*100,1)}% | book={round(best_prob*100,1)}% | edge={discrepancy}%", flush=True)
 
-        if discrepancy < 6.0:
+        if discrepancy < 7.0:
+            continue
+
+        # prioritize strong stat types
+        if market_key not in ["player_points_rebounds_assists", "player_points_assists", "player_points_rebounds"]:
             continue
 
         tag = "🔥 MAX PLAY" if discrepancy >= 8 else "✅ STRONG"
