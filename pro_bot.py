@@ -335,10 +335,8 @@ def run_bot():
 
 
 if __name__ == "__main__":
-    if not WEBHOOK_URL:
-        raise ValueError("WEBHOOK_URL is not set")
-    if not ODDS_API_KEY:
-        raise ValueError("ODDS_API_KEY is not set")
+    print("Webhook:", WEBHOOK_URL)
+    print("API Key:", ODDS_API_KEY)
 
     while True:
         print(f"\n--- Bot cycle started at {datetime.now()} ---")
