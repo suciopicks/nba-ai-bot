@@ -13,7 +13,6 @@ SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
 
-# Added h2h so we can detect favorite / underdog
 MARKETS = ",".join([
     "h2h",
     "player_points",
@@ -46,8 +45,11 @@ def load_sent_picks():
 
 
 def save_sent_picks(picks):
-    with open(SENT_FILE, "w") as f:
-        json.dump(sorted(list(picks)), f)
+    try:
+        with open(SENT_FILE, "w") as f:
+            json.dump(sorted(list(picks)), f)
+    except Exception as e:
+        print(f"SAVE FILE ERROR: {e}", flush=True)
 
 
 sent_picks = load_sent_picks()
@@ -59,7 +61,7 @@ sent_picks = load_sent_picks()
 def send_discord_embed(embed):
     if not WEBHOOK_URL:
         print("Missing WEBHOOK_URL", flush=True)
-        return
+        return False
 
     try:
         response = requests.post(
@@ -67,9 +69,32 @@ def send_discord_embed(embed):
             json={"embeds": [embed]},
             timeout=20,
         )
+
         print(f"Discord status: {response.status_code}", flush=True)
+        print(f"Discord response: {response.text}", flush=True)
+
+        if response.status_code in (200, 204):
+            print("Discord embed sent successfully.", flush=True)
+            return True
+        else:
+            print("Failed to send Discord embed.", flush=True)
+            return False
+
     except Exception as e:
         print(f"DISCORD ERROR: {e}", flush=True)
+        return False
+
+
+def send_startup_test():
+    embed = {
+        "title": "SucioBot😷 TEST",
+        "description": "✅ Bot is online and running",
+        "color": 0x00FF00,
+        "footer": {
+            "text": datetime.now().strftime("%Y-%m-%d %I:%M %p")
+        }
+    }
+    return send_discord_embed(embed)
 
 
 # -----------------------------
@@ -79,6 +104,8 @@ def get_events():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events"
     params = {"apiKey": ODDS_API_KEY}
     response = requests.get(url, params=params, timeout=20)
+    print(f"Events status: {response.status_code}", flush=True)
+    print(f"Events remaining requests: {response.headers.get('x-requests-remaining')}", flush=True)
     response.raise_for_status()
     return response.json()
 
@@ -93,6 +120,7 @@ def get_event_props(event_id):
         "oddsFormat": "american",
     }
     response = requests.get(url, params=params, timeout=20)
+    print(f"Props status for {event_id}: {response.status_code}", flush=True)
     response.raise_for_status()
     return response.json()
 
@@ -168,11 +196,6 @@ def make_pick_key(player, market_key, side, line, game_date):
 
 
 def extract_favorite_underdog(event):
-    """
-    Uses h2h prices across books to estimate favorite / underdog.
-    Lower implied price = better odds for the bettor, but higher implied probability
-    means more likely to win. We average implied probability by team.
-    """
     away_team = event.get("away_team", "Away")
     home_team = event.get("home_team", "Home")
 
@@ -207,6 +230,7 @@ def extract_favorite_underdog(event):
 
     if away_avg > home_avg:
         return away_team, home_team
+
     return home_team, away_team
 
 
@@ -296,22 +320,26 @@ def collect_market_candidates(event):
 
 
 # -----------------------------
-# MAIN
+# MAIN BOT RUN
 # -----------------------------
 def run_bot():
     print("Running bot...", flush=True)
-    
-    send_discord_embed({
-        "title": "SucioBot😷 TEST",
-        "description": "✅ Bot is alive and running",
-        "color": 0x00FF00
-    })
+
+    if not WEBHOOK_URL:
+        print("Missing WEBHOOK_URL", flush=True)
+        return
 
     if not ODDS_API_KEY:
         print("Missing ODDS_API_KEY", flush=True)
         return
 
-    events = get_events()
+    try:
+        events = get_events()
+        print(f"Found {len(events)} events", flush=True)
+    except Exception as e:
+        print(f"GET EVENTS ERROR: {e}", flush=True)
+        return
+
     all_plays = []
 
     for event in events:
@@ -322,16 +350,19 @@ def run_bot():
         try:
             event_props = get_event_props(event_id)
             plays = collect_market_candidates(event_props)
+            print(f"Event {event_id} -> {len(plays)} plays", flush=True)
             all_plays.extend(plays)
             time.sleep(1)
         except Exception as e:
-            print(f"Event error: {e}", flush=True)
+            print(f"Event error ({event_id}): {e}", flush=True)
 
     all_plays.sort(key=lambda x: x["discrepancy"], reverse=True)
 
     if not all_plays:
         print("No qualifying plays found.", flush=True)
         return
+
+    print(f"Total plays found: {len(all_plays)}", flush=True)
 
     for play in all_plays:
         if play["discrepancy"] >= 8:
@@ -372,18 +403,28 @@ def run_bot():
             }
         }
 
-        send_discord_embed(embed)
-        sent_picks.add(play["key"])
+        sent_ok = send_discord_embed(embed)
+        if sent_ok:
+            sent_picks.add(play["key"])
+            save_sent_picks(sent_picks)
+
         time.sleep(1)
 
-    save_sent_picks(sent_picks)
 
-
+# -----------------------------
+# ENTRY POINT
+# -----------------------------
 if __name__ == "__main__":
+    print("Bot starting...", flush=True)
+
+    # sends one test message immediately when the script starts
+    send_startup_test()
+
     while True:
         try:
             run_bot()
-            time.sleep(10)
+            print("Sleeping 300 seconds...", flush=True)
+            time.sleep(300)  # every 5 minutes
         except Exception as e:
             print(f"ERROR: {e}", flush=True)
             time.sleep(30)
