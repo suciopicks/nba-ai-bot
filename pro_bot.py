@@ -114,7 +114,5 @@ if __name__ == "__main__":
     while True:
         time.sleep(300)
         run_bot()
-    run_bot()
-    while True:
-        time.sleep(300)
-        run_bot()
+
+    
