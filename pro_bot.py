@@ -13,7 +13,22 @@ SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
 
-MARKETS = "h2h"
+MARKETS = ",".join([
+    "h2h",
+    "player_points",
+    "player_rebounds",
+    "player_assists",
+    "player_threes",
+    "player_blocks",
+    "player_steals",
+    "player_turnovers",
+    "player_blocks_steals",
+    "player_points_assists",
+    "player_points_rebounds",
+    "player_rebounds_assists",
+    "player_points_rebounds_assists",
+    "player_fantasy_points",
+])
 
 SENT_FILE = "sent_picks.json"
 
