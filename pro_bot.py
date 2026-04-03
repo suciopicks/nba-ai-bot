@@ -12,7 +12,6 @@ ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel"
-
 MARKETS = ",".join([
     "player_points",
     "player_rebounds",
@@ -23,8 +22,11 @@ MARKETS = ",".join([
 ODDS_FORMAT = "american"
 DATE_FORMAT = "iso"
 
-EDGE_THRESHOLD = 6.0
+EDGE_THRESHOLD = 4.0
 SLEEP_SECONDS = 300
+EVENT_DELAY_SECONDS = 1.0
+DISCORD_DELAY_SECONDS = 1.5
+MAX_EVENTS_PER_CYCLE = 8
 
 SEEN_FILE = "seen_plays.json"
 SEEN_TTL_SECONDS = 6 * 60 * 60
@@ -42,7 +44,8 @@ def send_discord_embed(embed):
             timeout=20
         )
         print(f"Discord status: {response.status_code}", flush=True)
-        print(f"Discord response: {response.text}", flush=True)
+        if response.text:
+            print(f"Discord response: {response.text}", flush=True)
         response.raise_for_status()
         return True
     except Exception as e:
@@ -57,7 +60,7 @@ def send_play(play):
             f"**Game:** {play['away_team']} @ {play['home_team']}\n"
             f"**Pick:** {play['side']} {play['line']}\n"
             f"**Best Book:** {play['best_book']} ({play['best_price']})\n"
-            f"**Consensus:** {play['consensus_price']}\n"
+            f"**Consensus Price:** {play['consensus_price']}\n"
             f"**Edge:** {play['edge']:.2f}%\n"
             f"**Start:** {play['commence_time']}"
         ),
@@ -101,29 +104,6 @@ def make_play_key(play):
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def get_nba_odds():
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
-
-    params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": REGIONS,
-        "markets": MARKETS,
-        "bookmakers": BOOKMAKERS,
-        "oddsFormat": ODDS_FORMAT,
-        "dateFormat": DATE_FORMAT,
-    }
-
-    response = requests.get(url, params=params, timeout=30)
-
-    print(f"Odds status: {response.status_code}", flush=True)
-    print(f"Response text: {response.text}", flush=True)
-    print(f"Requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
-    print(f"Requests used: {response.headers.get('x-requests-used')}", flush=True)
-
-    response.raise_for_status()
-    return response.json()
-
-
 def implied_prob(odds):
     odds = int(odds)
     if odds > 0:
@@ -138,19 +118,71 @@ def american_to_decimal(odds):
     return 1 + (100 / abs(odds))
 
 
+def estimate_consensus_american(prices):
+    decimals = [american_to_decimal(p["price"]) for p in prices]
+    avg_decimal = sum(decimals) / len(decimals)
+
+    if avg_decimal >= 2:
+        return f"+{int((avg_decimal - 1) * 100)}"
+    return str(int(-100 / (avg_decimal - 1)))
+
+
 def market_label(key):
     labels = {
         "player_points": "Points",
         "player_rebounds": "Rebounds",
         "player_assists": "Assists",
+        "player_points_rebounds_assists": "PRA",
     }
     return labels.get(key, key)
 
 
-def group_outcomes_by_player(game):
+def get_events():
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events"
+    params = {
+        "apiKey": ODDS_API_KEY,
+        "dateFormat": DATE_FORMAT,
+    }
+
+    response = requests.get(url, params=params, timeout=30)
+
+    print(f"Events status: {response.status_code}", flush=True)
+    if response.text:
+        print(f"Events response text: {response.text[:500]}", flush=True)
+    print(f"Events requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
+    print(f"Events requests used: {response.headers.get('x-requests-used')}", flush=True)
+
+    response.raise_for_status()
+    return response.json()
+
+
+def get_event_props(event_id):
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events/{event_id}/odds"
+    params = {
+        "apiKey": ODDS_API_KEY,
+        "regions": REGIONS,
+        "markets": MARKETS,
+        "bookmakers": BOOKMAKERS,
+        "oddsFormat": ODDS_FORMAT,
+        "dateFormat": DATE_FORMAT,
+    }
+
+    response = requests.get(url, params=params, timeout=30)
+
+    print(f"Props status for {event_id}: {response.status_code}", flush=True)
+    if response.text:
+        print(f"Props response text for {event_id}: {response.text[:500]}", flush=True)
+    print(f"Props requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
+    print(f"Props requests used: {response.headers.get('x-requests-used')}", flush=True)
+
+    response.raise_for_status()
+    return response.json()
+
+
+def group_outcomes_by_player(event_odds):
     grouped = {}
 
-    for bookmaker in game.get("bookmakers", []):
+    for bookmaker in event_odds.get("bookmakers", []):
         book_name = bookmaker.get("title", "Unknown Book")
 
         for market in bookmaker.get("markets", []):
@@ -176,18 +208,9 @@ def group_outcomes_by_player(game):
     return grouped
 
 
-def estimate_consensus_american(prices):
-    decimals = [american_to_decimal(p["price"]) for p in prices]
-    avg_decimal = sum(decimals) / len(decimals)
-
-    if avg_decimal >= 2:
-        return f"+{int((avg_decimal - 1) * 100)}"
-    return str(int(-100 / (avg_decimal - 1)))
-
-
-def find_best_edges(game):
+def find_best_edges(event_odds):
     plays = []
-    grouped = group_outcomes_by_player(game)
+    grouped = group_outcomes_by_player(event_odds)
 
     for (player, market_key, side, line), prices in grouped.items():
         if len(prices) < 2:
@@ -204,10 +227,10 @@ def find_best_edges(game):
             continue
 
         play = {
-            "game_id": game.get("id"),
-            "home_team": game.get("home_team"),
-            "away_team": game.get("away_team"),
-            "commence_time": game.get("commence_time"),
+            "game_id": event_odds.get("id"),
+            "home_team": event_odds.get("home_team"),
+            "away_team": event_odds.get("away_team"),
+            "commence_time": event_odds.get("commence_time"),
             "player": player,
             "market_key": market_key,
             "market_name": market_label(market_key),
@@ -227,12 +250,35 @@ def run_bot():
     seen = cleanup_seen(load_seen())
 
     try:
-        games = get_nba_odds()
-        print(f"Games returned: {len(games)}", flush=True)
+        events = get_events()
+        print(f"Events returned: {len(events)}", flush=True)
+
+        if not events:
+            save_seen(seen)
+            print("No events found.", flush=True)
+            return
+
+        events = events[:MAX_EVENTS_PER_CYCLE]
+        print(f"Scanning first {len(events)} events this cycle...", flush=True)
 
         all_plays = []
-        for game in games:
-            all_plays.extend(find_best_edges(game))
+
+        for event in events:
+            event_id = event.get("id")
+            if not event_id:
+                continue
+
+            try:
+                event_odds = get_event_props(event_id)
+                plays = find_best_edges(event_odds)
+                all_plays.extend(plays)
+                time.sleep(EVENT_DELAY_SECONDS)
+            except requests.HTTPError as e:
+                print(f"HTTP error on event {event_id}: {e}", flush=True)
+                time.sleep(3)
+            except Exception as e:
+                print(f"Unexpected event error on {event_id}: {e}", flush=True)
+                time.sleep(3)
 
         all_plays.sort(key=lambda x: x["edge"], reverse=True)
 
@@ -246,14 +292,20 @@ def run_bot():
             if send_play(play):
                 seen[play_key] = time.time()
                 sent_count += 1
-                time.sleep(1.5)
+                time.sleep(DISCORD_DELAY_SECONDS)
 
         save_seen(seen)
+        print(f"Total plays found: {len(all_plays)}", flush=True)
         print(f"Sent plays: {sent_count}", flush=True)
 
     except requests.HTTPError as e:
-        print(f"HTTP error: {e}", flush=True)
-        time.sleep(120)
+        response = getattr(e, "response", None)
+        if response is not None and response.status_code == 429:
+            print("Hit 429 rate limit. Sleeping 15 minutes.", flush=True)
+            time.sleep(900)
+        else:
+            print(f"HTTP error: {e}", flush=True)
+            time.sleep(120)
 
     except Exception as e:
         print(f"Unexpected error: {e}", flush=True)
@@ -261,8 +313,8 @@ def run_bot():
 
 
 if __name__ == "__main__":
-    print("Webhook:", WEBHOOK_URL, flush=True)
-    print("API Key:", ODDS_API_KEY, flush=True)
+    print("Webhook loaded:", bool(WEBHOOK_URL), flush=True)
+    print("API key loaded:", bool(ODDS_API_KEY), flush=True)
 
     while True:
         try:
