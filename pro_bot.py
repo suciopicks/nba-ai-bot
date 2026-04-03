@@ -300,6 +300,12 @@ def collect_market_candidates(event):
 # -----------------------------
 def run_bot():
     print("Running bot...", flush=True)
+    
+    send_discord_embed({
+        "title": "SucioBot😷 TEST",
+        "description": "✅ Bot is alive and running",
+        "color": 0x00FF00
+    })
 
     if not ODDS_API_KEY:
         print("Missing ODDS_API_KEY", flush=True)
