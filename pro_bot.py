@@ -115,14 +115,13 @@ def run_bot():
 
 
   if __name__ == "__main__":
-    print("RUNNING MAIN")
-
-    while True:
+      print("RUNNING MAIN")
+    
+      while True:
         try:
             send_discord("🔥 BOT TEST MESSAGE 🔥")
             run_bot()
             print("Sleeping...")
-
             time.sleep(60)
 
         except Exception as e:
