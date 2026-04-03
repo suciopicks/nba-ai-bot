@@ -19,11 +19,6 @@ MARKETS = ",".join([
     "player_points",
     "player_rebounds",
     "player_assists",
-    "player_threes",
-    "player_points_rebounds",
-    "player_points_assists",
-    "player_rebounds_assists",
-    "player_points_rebounds_assists",
 ])
 
 ODDS_FORMAT = "american"
