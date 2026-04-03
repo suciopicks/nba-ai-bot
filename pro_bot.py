@@ -203,48 +203,85 @@ def run_bot():
             print(f"Event error: {e}", flush=True)
 
     all_plays.sort(key=lambda x: x["edge"], reverse=True)
-    top_plays = all_plays[:3]
 
-    if not top_plays:
+    if not all_plays:
         print("No plays found.", flush=True)
         return
 
-    # 🎨 COLOR LOGIC
-    color = 0x00ff00  # default green
-
-    if top_plays[0]["edge"] >= 9:
-        color = 0x00ff00  # green (MAX)
-    elif top_plays[0]["edge"] >= 7:
-        color = 0x0099ff  # blue (STRONG)
-    else:
-        color = 0xff9900  # orange (LEAN)
-
-    # 🧠 BUILD CLEAN EMBED
-    description = ""
-
-    for play in top_plays:
-        emoji = "🏀" if play["stat"] == "PTS" else "🎯" if play["stat"] == "AST" else "💪"
-
-        description += (
-            f"{play['tag']} {emoji}\n"
-            f"**{play['player']} {play['side']} {play['line']} {play['stat']}**\n"
-            f"📊 Edge: +{play['edge']}%\n"
-            f"📈 Model: {play['model_prob']}%\n"
-            f"💰 Odds: {play['odds']}\n\n"
-        )
-
-    embed = {
-        "title": "📊 AI NBA TOP PLAYS",
-        "description": description,
-        "color": color,
-        "footer": {
-            "text": f"Updated {datetime.now().strftime('%I:%M %p')}"
-        }
+    grouped = {
+        "PTS": [],
+        "REB": [],
+        "AST": [],
     }
 
-    send_discord_embed(embed)
+    for play in all_plays:
+        if play["stat"] in grouped:
+            grouped[play["stat"]].append(play)
 
-    for play in top_plays:
+    sections = []
+
+    for stat_name, plays in grouped.items():
+        if not plays:
+            continue
+
+        section = f"## {stat_name}\n\n"
+
+        for play in plays:
+            emoji = "🏀" if play["stat"] == "PTS" else "💪" if play["stat"] == "REB" else "🎯"
+
+            section += (
+                f"{play['tag']} {emoji}\n"
+                f"**{play['player']} {play['side']} {play['line']} {play['stat']}**\n"
+                f"📍 Book: {play['bookmaker']}\n"
+                f"💰 Odds: {play['odds']}\n"
+                f"📊 Projection: {play['projection']}\n"
+                f"📈 Model: {play['model_prob']}%\n"
+                f"🎯 Vegas: {play['vegas_prob']}%\n"
+                f"⚡ Discrepancy: +{play['edge']}%\n"
+                f"🏟️ Game: {play['game']}\n\n"
+            )
+
+        sections.append(section)
+
+    full_text = "".join(sections)
+
+    chunks = []
+    current_chunk = ""
+
+    for section in sections:
+        if len(current_chunk) + len(section) > 3500:
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = section
+        else:
+            current_chunk += section
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    for i, chunk in enumerate(chunks):
+        top_edge = all_plays[0]["edge"]
+
+        if top_edge >= 9:
+            color = 0x00FF00
+        elif top_edge >= 7:
+            color = 0x0099FF
+        else:
+            color = 0xFF9900
+
+        embed = {
+            "title": "SucioBot😷" if i == 0 else "SucioBot😷 (cont.)",
+            "description": chunk,
+            "color": color,
+            "footer": {
+                "text": f"Updated {datetime.now().strftime('%I:%M %p')}"
+            }
+        }
+
+        send_discord_embed(embed)
+        time.sleep(1)
+
+    for play in all_plays:
         sent_picks.add(play["key"])
 
     save_sent_picks(sent_picks)
