@@ -11,7 +11,7 @@ ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 
 SPORT = "basketball_nba"
 REGIONS = "us"
-BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
+BOOKMAKERS = "draftkings,fanduel"
 
 # Keep this limited or you can still burn requests / credits faster
 MARKETS = ",".join([
