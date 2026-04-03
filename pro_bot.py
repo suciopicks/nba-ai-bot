@@ -3,6 +3,52 @@ import time
 import json
 import hashlib
 from datetime import datetime
+def team_abbr_from_name(team_name):
+    mapping = {
+        "Atlanta Hawks": "atl",
+        "Boston Celtics": "bos",
+        "Brooklyn Nets": "bkn",
+        "Charlotte Hornets": "cha",
+        "Chicago Bulls": "chi",
+        "Cleveland Cavaliers": "cle",
+        "Dallas Mavericks": "dal",
+        "Denver Nuggets": "den",
+        "Detroit Pistons": "det",
+        "Golden State Warriors": "gsw",
+        "Houston Rockets": "hou",
+        "Indiana Pacers": "ind",
+        "LA Clippers": "lac",
+        "Los Angeles Clippers": "lac",
+        "Los Angeles Lakers": "lal",
+        "Memphis Grizzlies": "mem",
+        "Miami Heat": "mia",
+        "Milwaukee Bucks": "mil",
+        "Minnesota Timberwolves": "min",
+        "New Orleans Pelicans": "nop",
+        "New York Knicks": "nyk",
+        "Oklahoma City Thunder": "okc",
+        "Orlando Magic": "orl",
+        "Philadelphia 76ers": "phi",
+        "Phoenix Suns": "phx",
+        "Portland Trail Blazers": "por",
+        "Sacramento Kings": "sac",
+        "San Antonio Spurs": "sas",
+        "Toronto Raptors": "tor",
+        "Utah Jazz": "uta",
+        "Washington Wizards": "wsh",
+    }
+    return mapping.get(team_name)
+
+
+def get_team_logo_url(game_string):
+    try:
+        away_team, home_team = [x.strip() for x in game_string.split("@")]
+        home_abbr = team_abbr_from_name(home_team)
+        if not home_abbr:
+            return None
+        return f"https://i.cdn.turner.com/nba/nba/.element/img/4.0/global/logos/512x512/bg.white/{home_abbr}.png"
+    except Exception:
+        return None
 import requests
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -268,6 +314,8 @@ def run_bot():
             color = 0x0099FF
         else:
             color = 0xFF9900
+            
+        logo_url = get_team_logo_url(play["game"])
 
         embed = {
             "title": "SucioBot😷" if i == 0 else "SucioBot😷 (cont.)",
@@ -277,7 +325,10 @@ def run_bot():
                 "text": f"Updated {datetime.now().strftime('%I:%M %p')}"
             }
         }
-
+        
+        if logo_url:
+            embed["thumbnail"] = {"url": logo_url}
+            
         send_discord_embed(embed)
         time.sleep(1)
 
