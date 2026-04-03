@@ -31,21 +31,18 @@ def save_sent_picks(sent_keys):
 sent_picks = load_sent_picks()
 
 
-def send_discord(content=None, embed=None):
+def send_discord_embed(embed):
     if not WEBHOOK_URL:
         print("Missing WEBHOOK_URL", flush=True)
         return
 
-    payload = {}
-    if content:
-        payload["content"] = content
-    if embed:
-        payload["embeds"] = [embed]
+    payload = {
+        "embeds": [embed]
+    }
 
     try:
         response = requests.post(WEBHOOK_URL, json=payload, timeout=20)
         print(f"Discord status: {response.status_code}", flush=True)
-        print(f"Discord response: {response.text}", flush=True)
     except Exception as e:
         print(f"DISCORD ERROR: {e}", flush=True)
 
@@ -190,10 +187,6 @@ def analyze_event(event):
 def run_bot():
     print("Running bot...", flush=True)
 
-    if not ODDS_API_KEY:
-        print("Missing ODDS_API_KEY", flush=True)
-        return
-
     events = get_events()
     all_plays = []
 
@@ -213,15 +206,46 @@ def run_bot():
     top_plays = all_plays[:3]
 
     if not top_plays:
-        print("No new edges found.", flush=True)
+        print("No plays found.", flush=True)
         return
 
-    send_discord(content="📊 **TOP NBA PROP EDGES**")
+    # 🎨 COLOR LOGIC
+    color = 0x00ff00  # default green
+
+    if top_plays[0]["edge"] >= 9:
+        color = 0x00ff00  # green (MAX)
+    elif top_plays[0]["edge"] >= 7:
+        color = 0x0099ff  # blue (STRONG)
+    else:
+        color = 0xff9900  # orange (LEAN)
+
+    # 🧠 BUILD CLEAN EMBED
+    description = ""
 
     for play in top_plays:
-        send_discord(embed=build_embed(play))
+        emoji = "🏀" if play["stat"] == "PTS" else "🎯" if play["stat"] == "AST" else "💪"
+
+        description += (
+            f"{play['tag']} {emoji}\n"
+            f"**{play['player']} {play['side']} {play['line']} {play['stat']}**\n"
+            f"📊 Edge: +{play['edge']}%\n"
+            f"📈 Model: {play['model_prob']}%\n"
+            f"💰 Odds: {play['odds']}\n\n"
+        )
+
+    embed = {
+        "title": "📊 AI NBA TOP PLAYS",
+        "description": description,
+        "color": color,
+        "footer": {
+            "text": f"Updated {datetime.now().strftime('%I:%M %p')}"
+        }
+    }
+
+    send_discord_embed(embed)
+
+    for play in top_plays:
         sent_picks.add(play["key"])
-        time.sleep(1)
 
     save_sent_picks(sent_picks)
 
