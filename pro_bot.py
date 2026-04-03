@@ -335,11 +335,15 @@ def run_bot():
 
 
 if __name__ == "__main__":
-    print("Webhook:", WEBHOOK_URL)
-    print("API Key:", ODDS_API_KEY)
+    print("Webhook:", WEBHOOK_URL, flush=True)
+    print("API Key:", ODDS_API_KEY, flush=True)
 
     while True:
-        print(f"\n--- Bot cycle started at {datetime.now()} ---")
-        run_bot()
-        print(f"Sleeping {SLEEP_SECONDS} seconds...\n")
-        time.sleep(SLEEP_SECONDS)
+        try:
+            print(f"\n--- Bot cycle started at {datetime.now()} ---", flush=True)
+            run_bot()
+            print(f"Sleeping {SLEEP_SECONDS} seconds...\n", flush=True)
+            time.sleep(SLEEP_SECONDS)
+        except Exception as e:
+            print(f"MAIN LOOP ERROR: {e}", flush=True)
+            time.sleep(60)
