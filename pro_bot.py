@@ -13,9 +13,7 @@ SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel"
 
-# Keep this limited or you can still burn requests / credits faster
 MARKETS = ",".join([
-    "h2h",
     "player_points",
     "player_rebounds",
     "player_assists",
@@ -24,23 +22,16 @@ MARKETS = ",".join([
 ODDS_FORMAT = "american"
 DATE_FORMAT = "iso"
 
-# Minimum edge between books before sending
 EDGE_THRESHOLD = 6.0
-
-# Main loop delay
 SLEEP_SECONDS = 300
 
-# Prevent duplicate spam
 SEEN_FILE = "seen_plays.json"
-SEEN_TTL_SECONDS = 6 * 60 * 60  # 6 hours
+SEEN_TTL_SECONDS = 6 * 60 * 60
 
 
-# -----------------------------
-# DISCORD
-# -----------------------------
 def send_discord_embed(embed):
     if not WEBHOOK_URL:
-        print("Missing WEBHOOK_URL")
+        print("Missing WEBHOOK_URL", flush=True)
         return False
 
     try:
@@ -49,41 +40,34 @@ def send_discord_embed(embed):
             json={"embeds": [embed]},
             timeout=20
         )
-        print(f"Discord status: {response.status_code}")
+        print(f"Discord status: {response.status_code}", flush=True)
+        print(f"Discord response: {response.text}", flush=True)
         response.raise_for_status()
         return True
     except Exception as e:
-        print(f"Discord send error: {e}")
+        print(f"Discord send error: {e}", flush=True)
         return False
 
 
 def send_play(play):
-    title = f"🔥 {play['player']} — {play['market_name']}"
-    description = (
-        f"**Game:** {play['away_team']} @ {play['home_team']}\n"
-        f"**Pick:** {play['over_under']} {play['line']}\n"
-        f"**Best Book:** {play['best_book']} ({play['best_price']})\n"
-        f"**Consensus Price:** {play['consensus_price']}\n"
-        f"**Edge:** {play['edge']:.2f}%\n"
-        f"**Favorite/Underdog:** {play['favorite_info']}\n"
-        f"**Start:** {play['commence_time']}"
-    )
-
     embed = {
-        "title": title,
-        "description": description,
+        "title": f"🔥 {play['player']} — {play['market_name']}",
+        "description": (
+            f"**Game:** {play['away_team']} @ {play['home_team']}\n"
+            f"**Pick:** {play['side']} {play['line']}\n"
+            f"**Best Book:** {play['best_book']} ({play['best_price']})\n"
+            f"**Consensus:** {play['consensus_price']}\n"
+            f"**Edge:** {play['edge']:.2f}%\n"
+            f"**Start:** {play['commence_time']}"
+        ),
         "color": 0x00FF00,
         "footer": {
             "text": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
     }
-
     return send_discord_embed(embed)
 
 
-# -----------------------------
-# STORAGE
-# -----------------------------
 def load_seen():
     if not os.path.exists(SEEN_FILE):
         return {}
@@ -101,24 +85,21 @@ def save_seen(seen):
 
 def cleanup_seen(seen):
     now = time.time()
-    fresh = {}
-    for k, ts in seen.items():
+    cleaned = {}
+    for key, ts in seen.items():
         if now - ts < SEEN_TTL_SECONDS:
-            fresh[k] = ts
-    return fresh
+            cleaned[key] = ts
+    return cleaned
 
 
 def make_play_key(play):
     raw = (
         f"{play['game_id']}|{play['player']}|{play['market_key']}|"
-        f"{play['over_under']}|{play['line']}|{play['best_book']}"
+        f"{play['side']}|{play['line']}|{play['best_book']}"
     )
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-# -----------------------------
-# API
-# -----------------------------
 def get_nba_odds():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
 
@@ -133,20 +114,15 @@ def get_nba_odds():
 
     response = requests.get(url, params=params, timeout=30)
 
-    print(f"Odds status: {response.status_code}")
-    print(f"Requests remaining: {response.headers.get('x-requests-remaining')}")
-    print(f"Requests used: {response.headers.get('x-requests-used')}")
-
-    if response.status_code == 429:
-        raise requests.HTTPError("429 Too Many Requests", response=response)
+    print(f"Odds status: {response.status_code}", flush=True)
+    print(f"Response text: {response.text}", flush=True)
+    print(f"Requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
+    print(f"Requests used: {response.headers.get('x-requests-used')}", flush=True)
 
     response.raise_for_status()
     return response.json()
 
 
-# -----------------------------
-# HELPERS
-# -----------------------------
 def implied_prob(odds):
     odds = int(odds)
     if odds > 0:
@@ -162,42 +138,12 @@ def american_to_decimal(odds):
 
 
 def market_label(key):
-    mapping = {
+    labels = {
         "player_points": "Points",
         "player_rebounds": "Rebounds",
         "player_assists": "Assists",
-        "player_threes": "3PT Made",
-        "player_points_rebounds": "PR",
-        "player_points_assists": "PA",
-        "player_rebounds_assists": "RA",
-        "player_points_rebounds_assists": "PRA",
     }
-    return mapping.get(key, key)
-
-
-def get_favorite_info(game):
-    h2h_market = None
-
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market.get("key") == "h2h":
-                h2h_market = market
-                break
-        if h2h_market:
-            break
-
-    if not h2h_market:
-        return "N/A"
-
-    outcomes = h2h_market.get("outcomes", [])
-    if len(outcomes) < 2:
-        return "N/A"
-
-    sorted_outcomes = sorted(outcomes, key=lambda x: int(x["price"]))
-    favorite = sorted_outcomes[0]
-    underdog = sorted_outcomes[-1]
-
-    return f"{favorite['name']} favored over {underdog['name']}"
+    return labels.get(key, key)
 
 
 def group_outcomes_by_player(game):
@@ -207,21 +153,20 @@ def group_outcomes_by_player(game):
         book_name = bookmaker.get("title", "Unknown Book")
 
         for market in bookmaker.get("markets", []):
-            key = market.get("key")
-
-            if key == "h2h":
-                continue
+            market_key = market.get("key")
 
             for outcome in market.get("outcomes", []):
                 player = outcome.get("description")
-                side = outcome.get("name")  # Over / Under
+                side = outcome.get("name")
                 line = outcome.get("point")
                 price = outcome.get("price")
 
-                if player is None or line is None or price is None or side not in ("Over", "Under"):
+                if not player or side not in ("Over", "Under"):
+                    continue
+                if line is None or price is None:
                     continue
 
-                bucket_key = (player, key, side, float(line))
+                bucket_key = (player, market_key, side, float(line))
                 grouped.setdefault(bucket_key, []).append({
                     "bookmaker": book_name,
                     "price": int(price),
@@ -230,36 +175,32 @@ def group_outcomes_by_player(game):
     return grouped
 
 
+def estimate_consensus_american(prices):
+    decimals = [american_to_decimal(p["price"]) for p in prices]
+    avg_decimal = sum(decimals) / len(decimals)
+
+    if avg_decimal >= 2:
+        return f"+{int((avg_decimal - 1) * 100)}"
+    return str(int(-100 / (avg_decimal - 1)))
+
+
 def find_best_edges(game):
     plays = []
     grouped = group_outcomes_by_player(game)
-    favorite_info = get_favorite_info(game)
 
     for (player, market_key, side, line), prices in grouped.items():
         if len(prices) < 2:
             continue
 
-        # Best payout number for bettor
         best = max(prices, key=lambda x: x["price"])
 
         implied_probs = [implied_prob(p["price"]) for p in prices]
         consensus_prob = sum(implied_probs) / len(implied_probs)
         best_prob = implied_prob(best["price"])
-
         edge = consensus_prob - best_prob
 
         if edge < EDGE_THRESHOLD:
             continue
-
-        consensus_decimal = sum(american_to_decimal(p["price"]) for p in prices) / len(prices)
-
-        # crude convert back to approximate american display
-        if consensus_decimal >= 2:
-            consensus_american = int((consensus_decimal - 1) * 100)
-            consensus_american = f"+{consensus_american}"
-        else:
-            consensus_american = int(-100 / (consensus_decimal - 1))
-            consensus_american = str(consensus_american)
 
         play = {
             "game_id": game.get("id"),
@@ -269,63 +210,52 @@ def find_best_edges(game):
             "player": player,
             "market_key": market_key,
             "market_name": market_label(market_key),
-            "over_under": side,
+            "side": side,
             "line": line,
             "best_book": best["bookmaker"],
             "best_price": best["price"],
-            "consensus_price": consensus_american,
+            "consensus_price": estimate_consensus_american(prices),
             "edge": edge,
-            "favorite_info": favorite_info,
         }
         plays.append(play)
 
     return plays
 
 
-# -----------------------------
-# MAIN
-# -----------------------------
 def run_bot():
     seen = cleanup_seen(load_seen())
 
     try:
         games = get_nba_odds()
-        print(f"Games returned: {len(games)}")
+        print(f"Games returned: {len(games)}", flush=True)
 
         all_plays = []
-
         for game in games:
-            plays = find_best_edges(game)
-            all_plays.extend(plays)
+            all_plays.extend(find_best_edges(game))
 
         all_plays.sort(key=lambda x: x["edge"], reverse=True)
 
         sent_count = 0
         for play in all_plays:
-            key = make_play_key(play)
-            if key in seen:
+            play_key = make_play_key(play)
+
+            if play_key in seen:
                 continue
 
-            ok = send_play(play)
-            if ok:
-                seen[key] = time.time()
+            if send_play(play):
+                seen[play_key] = time.time()
                 sent_count += 1
-                time.sleep(1.5)  # small pause so Discord isn't spammed too fast
+                time.sleep(1.5)
 
         save_seen(seen)
-        print(f"Sent plays: {sent_count}")
+        print(f"Sent plays: {sent_count}", flush=True)
 
     except requests.HTTPError as e:
-        response = getattr(e, "response", None)
-        if response is not None and response.status_code == 429:
-            print("Hit 429 rate limit. Sleeping 15 minutes.")
-            time.sleep(900)
-        else:
-            print(f"HTTP error: {e}")
-            time.sleep(120)
+        print(f"HTTP error: {e}", flush=True)
+        time.sleep(120)
 
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error: {e}", flush=True)
         time.sleep(120)
 
 
