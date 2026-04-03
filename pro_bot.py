@@ -13,11 +13,7 @@ SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel"
 
-MARKETS = ",".join([
-    "player_points",
-    "player_rebounds",
-    "player_assists",
-])
+MARKETS = "h2h"
 
 ODDS_FORMAT = "american"
 DATE_FORMAT = "iso"
