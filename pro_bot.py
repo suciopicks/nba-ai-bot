@@ -1,8 +1,9 @@
+print("🔥 BOT IS LIVE 🔥")
 import os
 import requests
 import time
 from datetime import datetime
-print("🔥 BOT FILE IS RUNNING")
+
 # =========================
 # ENV VARIABLES (IMPORTANT)
 # =========================
