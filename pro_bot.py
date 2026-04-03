@@ -3,52 +3,6 @@ import time
 import json
 import hashlib
 from datetime import datetime
-def team_abbr_from_name(team_name):
-    mapping = {
-        "Atlanta Hawks": "atl",
-        "Boston Celtics": "bos",
-        "Brooklyn Nets": "bkn",
-        "Charlotte Hornets": "cha",
-        "Chicago Bulls": "chi",
-        "Cleveland Cavaliers": "cle",
-        "Dallas Mavericks": "dal",
-        "Denver Nuggets": "den",
-        "Detroit Pistons": "det",
-        "Golden State Warriors": "gsw",
-        "Houston Rockets": "hou",
-        "Indiana Pacers": "ind",
-        "LA Clippers": "lac",
-        "Los Angeles Clippers": "lac",
-        "Los Angeles Lakers": "lal",
-        "Memphis Grizzlies": "mem",
-        "Miami Heat": "mia",
-        "Milwaukee Bucks": "mil",
-        "Minnesota Timberwolves": "min",
-        "New Orleans Pelicans": "nop",
-        "New York Knicks": "nyk",
-        "Oklahoma City Thunder": "okc",
-        "Orlando Magic": "orl",
-        "Philadelphia 76ers": "phi",
-        "Phoenix Suns": "phx",
-        "Portland Trail Blazers": "por",
-        "Sacramento Kings": "sac",
-        "San Antonio Spurs": "sas",
-        "Toronto Raptors": "tor",
-        "Utah Jazz": "uta",
-        "Washington Wizards": "wsh",
-    }
-    return mapping.get(team_name)
-
-
-def get_team_logo_url(game_string):
-    try:
-        away_team, home_team = [x.strip() for x in game_string.split("@")]
-        home_abbr = team_abbr_from_name(home_team)
-        if not home_abbr:
-            return None
-        return f"https://i.cdn.turner.com/nba/nba/.element/img/4.0/global/logos/512x512/bg.white/{home_abbr}.png"
-    except Exception:
-        return None
 import requests
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -56,11 +10,31 @@ ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 
 SPORT = "basketball_nba"
 REGIONS = "us"
-BOOKMAKERS = "draftkings,fanduel"
-MARKETS = "player_points,player_rebounds,player_assists"
+BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
+
+# Added PA / PR / PRA + more props
+MARKETS = ",".join([
+    "player_points",
+    "player_rebounds",
+    "player_assists",
+    "player_threes",
+    "player_blocks",
+    "player_steals",
+    "player_turnovers",
+    "player_blocks_steals",
+    "player_points_assists",
+    "player_points_rebounds",
+    "player_rebounds_assists",
+    "player_points_rebounds_assists",
+    "player_fantasy_points",
+])
+
 SENT_FILE = "sent_picks.json"
 
 
+# -----------------------------
+# SENT PICK STORAGE
+# -----------------------------
 def load_sent_picks():
     try:
         with open(SENT_FILE, "r") as f:
@@ -69,45 +43,42 @@ def load_sent_picks():
         return set()
 
 
-def save_sent_picks(sent_keys):
+def save_sent_picks(picks):
     with open(SENT_FILE, "w") as f:
-        json.dump(sorted(list(sent_keys)), f)
+        json.dump(sorted(list(picks)), f)
 
 
 sent_picks = load_sent_picks()
 
 
+# -----------------------------
+# DISCORD
+# -----------------------------
 def send_discord_embed(embed):
     if not WEBHOOK_URL:
         print("Missing WEBHOOK_URL", flush=True)
         return
 
-    payload = {
-        "embeds": [embed]
-    }
-
     try:
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=20)
+        response = requests.post(
+            WEBHOOK_URL,
+            json={"embeds": [embed]},
+            timeout=20,
+        )
         print(f"Discord status: {response.status_code}", flush=True)
     except Exception as e:
         print(f"DISCORD ERROR: {e}", flush=True)
 
 
-def american_implied_prob(odds):
-    if odds is None:
-        return None
-    odds = int(odds)
-    if odds < 0:
-        return abs(odds) / (abs(odds) + 100)
-    return 100 / (odds + 100)
-
-
+# -----------------------------
+# API
+# -----------------------------
 def get_events():
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events"
     params = {"apiKey": ODDS_API_KEY}
-    r = requests.get(url, params=params, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.get(url, params=params, timeout=20)
+    response.raise_for_status()
+    return response.json()
 
 
 def get_event_props(event_id):
@@ -119,62 +90,56 @@ def get_event_props(event_id):
         "bookmakers": BOOKMAKERS,
         "oddsFormat": "american",
     }
-    r = requests.get(url, params=params, timeout=20)
-    r.raise_for_status()
-    return r.json()
+    response = requests.get(url, params=params, timeout=20)
+    response.raise_for_status()
+    return response.json()
 
 
-def fake_projection_from_line(line, market_key):
-    # placeholder projection logic until you add your own model
-    if market_key == "player_points":
-        return round(line + 1.8, 1)
-    if market_key == "player_rebounds":
-        return round(line + 0.9, 1)
-    if market_key == "player_assists":
-        return round(line + 0.7, 1)
-    return round(line + 0.5, 1)
+# -----------------------------
+# HELPERS
+# -----------------------------
+def implied_prob(odds):
+    odds = int(odds)
+    if odds < 0:
+        return abs(odds) / (abs(odds) + 100)
+    return 100 / (odds + 100)
 
 
-def model_probability(line, projection):
-    diff = projection - line
-    prob = 0.50 + (diff * 0.045)
-    return max(0.25, min(0.80, prob))
-
-
-def pick_key(bookmaker, player, market, side, line):
-    raw = f"{bookmaker}|{player}|{market}|{side}|{line}"
-    return hashlib.md5(raw.encode()).hexdigest()
-
-
-def build_embed(play):
-    return {
-        "title": f"{play['tag']} NBA PROP",
-        "description": f"**{play['player']} {play['side']} {play['line']} {play['stat']}**",
-        "fields": [
-            {"name": "Book", "value": play["bookmaker"], "inline": True},
-            {"name": "Odds", "value": str(play["odds"]), "inline": True},
-            {"name": "Projection", "value": str(play["projection"]), "inline": True},
-            {"name": "Edge", "value": f"+{play['edge']}%", "inline": True},
-            {"name": "Model", "value": f"{play['model_prob']}%", "inline": True},
-            {"name": "Vegas", "value": f"{play['vegas_prob']}%", "inline": True},
-            {"name": "Game", "value": play["game"], "inline": False},
-            {"name": "Time", "value": datetime.now().strftime("%I:%M %p"), "inline": True},
-        ],
-        "footer": {"text": "AI NBA Props Bot"},
-    }
-
-
-def market_label(market_key):
-    return {
+def market_label(key):
+    mapping = {
         "player_points": "PTS",
         "player_rebounds": "REB",
         "player_assists": "AST",
-    }.get(market_key, market_key)
+        "player_threes": "3PM",
+        "player_blocks": "BLK",
+        "player_steals": "STL",
+        "player_turnovers": "TOV",
+        "player_blocks_steals": "B+S",
+        "player_points_assists": "PA",
+        "player_points_rebounds": "PR",
+        "player_rebounds_assists": "RA",
+        "player_points_rebounds_assists": "PRA",
+        "player_fantasy_points": "FP",
+    }
+    return mapping.get(key, key)
 
 
-def analyze_event(event):
-    plays = []
-    game_name = f"{event.get('away_team', 'Away')} @ {event.get('home_team', 'Home')}"
+def make_pick_key(player, market_key, side, line, game_date):
+    raw = f"{player}|{market_key}|{side}|{line}|{game_date}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+# -----------------------------
+# MARKET COMPARISON ENGINE
+# -----------------------------
+def collect_market_candidates(event):
+    """
+    Build groups by player + market + side + line.
+    Then compare prices across books for the exact same outcome.
+    """
+    grouped = {}
+    game = f"{event.get('away_team', 'Away')} @ {event.get('home_team', 'Home')}"
+    game_date = event.get("commence_time", "")
 
     for bookmaker in event.get("bookmakers", []):
         book_name = bookmaker.get("title", "Book")
@@ -192,46 +157,69 @@ def analyze_event(event):
                 if not player or line is None or odds is None:
                     continue
 
-                projection = fake_projection_from_line(float(line), market_key)
-                model_prob = model_probability(float(line), projection)
-                vegas_prob = american_implied_prob(int(odds))
-
-                if vegas_prob is None:
-                    continue
-
-                edge = round((model_prob - vegas_prob) * 100, 1)
-
-                if edge < 6:
-                    continue
-
-                key = pick_key(book_name, player, market_key, side, line)
-                if key in sent_picks:
-                    continue
-
-                tag = "🔥 MAX PLAY" if edge >= 8 else "✅ STRONG"
-
-                plays.append({
-                    "key": key,
-                    "player": player,
-                    "side": side,
-                    "line": line,
-                    "stat": market_label(market_key),
-                    "odds": odds,
-                    "projection": projection,
-                    "model_prob": round(model_prob * 100, 1),
-                    "vegas_prob": round(vegas_prob * 100, 1),
-                    "edge": edge,
-                    "bookmaker": book_name,
-                    "tag": tag,
-                    "game": game_name,
+                group_key = (player, market_key, side, float(line))
+                grouped.setdefault(group_key, []).append({
+                    "book": book_name,
+                    "odds": int(odds),
+                    "implied_prob": implied_prob(int(odds)),
                 })
 
-    plays.sort(key=lambda x: x["edge"], reverse=True)
-    return plays[:3]
+    plays = []
+
+    for (player, market_key, side, line), books in grouped.items():
+        if len(books) < 2:
+            continue
+
+        # Best bettor-friendly odds:
+        # for negative odds, closer to zero is better (e.g. -105 better than -130)
+        # for positive odds, bigger is better (e.g. +110 better than +100)
+        best = max(books, key=lambda x: x["odds"])
+        avg_prob = sum(b["implied_prob"] for b in books) / len(books)
+        best_prob = best["implied_prob"]
+
+        # "Discrepancy" here = consensus market implied probability minus
+        # the implied probability of the best available price.
+        discrepancy = round((avg_prob - best_prob) * 100, 1)
+
+        if discrepancy < 2.0:
+            continue
+
+        tag = "🔥 MAX PLAY" if discrepancy >= 5 else "✅ STRONG"
+
+        key = make_pick_key(player, market_key, side, line, game_date)
+        if key in sent_picks:
+            continue
+
+        plays.append({
+            "key": key,
+            "player": player,
+            "stat": market_label(market_key),
+            "market_key": market_key,
+            "side": side,
+            "line": line,
+            "best_book": best["book"],
+            "best_odds": best["odds"],
+            "best_implied": round(best_prob * 100, 1),
+            "market_avg_implied": round(avg_prob * 100, 1),
+            "discrepancy": discrepancy,
+            "books_compared": len(books),
+            "game": game,
+            "tag": tag,
+        })
+
+    plays.sort(key=lambda x: x["discrepancy"], reverse=True)
+    return plays
 
 
+# -----------------------------
+# MAIN
+# -----------------------------
 def run_bot():
     print("Running bot...", flush=True)
+
+    if not ODDS_API_KEY:
+        print("Missing ODDS_API_KEY", flush=True)
+        return
 
     events = get_events()
     all_plays = []
@@ -243,97 +231,56 @@ def run_bot():
 
         try:
             event_props = get_event_props(event_id)
-            all_plays.extend(analyze_event(event_props))
+            plays = collect_market_candidates(event_props)
+            all_plays.extend(plays)
             time.sleep(1)
         except Exception as e:
             print(f"Event error: {e}", flush=True)
 
-    all_plays.sort(key=lambda x: x["edge"], reverse=True)
+    all_plays.sort(key=lambda x: x["discrepancy"], reverse=True)
 
     if not all_plays:
-        print("No plays found.", flush=True)
+        print("No qualifying plays found.", flush=True)
         return
 
-    grouped = {
-        "PTS": [],
-        "REB": [],
-        "AST": [],
-    }
-
     for play in all_plays:
-        if play["stat"] in grouped:
-            grouped[play["stat"]].append(play)
-
-    sections = []
-
-    for stat_name, plays in grouped.items():
-        if not plays:
-            continue
-
-        section = f"## {stat_name}\n\n"
-
-        for play in plays:
-            emoji = "🏀" if play["stat"] == "PTS" else "💪" if play["stat"] == "REB" else "🎯"
-
-            section += (
-                f"{play['tag']} {emoji}\n"
-                f"**{play['player']} {play['side']} {play['line']} {play['stat']}**\n"
-                f"📍 Book: {play['bookmaker']}\n"
-                f"💰 Odds: {play['odds']}\n"
-                f"📊 Projection: {play['projection']}\n"
-                f"📈 Model: {play['model_prob']}%\n"
-                f"🎯 Vegas: {play['vegas_prob']}%\n"
-                f"⚡ Discrepancy: +{play['edge']}%\n"
-                f"🏟️ Game: {play['game']}\n\n"
-            )
-
-        sections.append(section)
-
-    full_text = "".join(sections)
-
-    chunks = []
-    current_chunk = ""
-
-    for section in sections:
-        if len(current_chunk) + len(section) > 3500:
-            if current_chunk:
-                chunks.append(current_chunk)
-            current_chunk = section
-        else:
-            current_chunk += section
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    for i, chunk in enumerate(chunks):
-        top_edge = all_plays[0]["edge"]
-
-        if top_edge >= 9:
+        if play["discrepancy"] >= 5:
             color = 0x00FF00
-        elif top_edge >= 7:
+        elif play["discrepancy"] >= 3:
             color = 0x0099FF
         else:
             color = 0xFF9900
-            
-        logo_url = get_team_logo_url(play["game"])
+
+        if play["stat"] in ["PTS", "PA", "PR", "PRA"]:
+            emoji = "🏀"
+        elif play["stat"] in ["REB", "RA", "B+S"]:
+            emoji = "💪"
+        elif play["stat"] in ["AST"]:
+            emoji = "🎯"
+        else:
+            emoji = "📊"
 
         embed = {
-            "title": "SucioBot😷" if i == 0 else "SucioBot😷 (cont.)",
-            "description": chunk,
+            "title": f"SucioBot😷 {play['tag']} {emoji}",
+            "description": f"**{play['player']} {play['side']} {play['line']} {play['stat']}**",
             "color": color,
+            "fields": [
+                {"name": "📍 Best Book", "value": play["best_book"], "inline": True},
+                {"name": "💰 Best Odds", "value": str(play["best_odds"]), "inline": True},
+                {"name": "📚 Books Compared", "value": str(play["books_compared"]), "inline": True},
+                {"name": "🎯 Best Implied %", "value": f"{play['best_implied']}%", "inline": True},
+                {"name": "📈 Market Avg %", "value": f"{play['market_avg_implied']}%", "inline": True},
+                {"name": "⚡ Discrepancy", "value": f"+{play['discrepancy']}%", "inline": True},
+                {"name": "🏟️ Game", "value": play["game"], "inline": False},
+            ],
             "footer": {
-                "text": f"Updated {datetime.now().strftime('%I:%M %p')}"
+                "text": datetime.now().strftime("%I:%M %p")
             }
         }
-        
-        if logo_url:
-            embed["thumbnail"] = {"url": logo_url}
-            
-        send_discord_embed(embed)
-        time.sleep(1)
 
-    for play in all_plays:
+        send_discord_embed(embed)
         sent_picks.add(play["key"])
+        time.sleep(1)
 
     save_sent_picks(sent_picks)
 
@@ -342,8 +289,7 @@ if __name__ == "__main__":
     while True:
         try:
             run_bot()
-            print("Sleeping...", flush=True)
-            time.sleep(10)
+            time.sleep(300)
         except Exception as e:
             print(f"ERROR: {e}", flush=True)
             time.sleep(30)
