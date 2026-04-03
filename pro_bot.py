@@ -120,6 +120,9 @@ def run_bot():
     while True:
         try:
             send_discord("🔥 BOT TEST MESSAGE 🔥")
+
+            run_bot()
+
             print("Sleeping...")
             time.sleep(60)
 
