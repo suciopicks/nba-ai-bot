@@ -3,6 +3,7 @@ import time
 import json
 import hashlib
 from datetime import datetime
+
 import requests
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -12,8 +13,9 @@ SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
 
-# Added PA / PR / PRA + more props
+# Added h2h so we can detect favorite / underdog
 MARKETS = ",".join([
+    "h2h",
     "player_points",
     "player_rebounds",
     "player_assists",
@@ -105,6 +107,42 @@ def implied_prob(odds):
     return 100 / (odds + 100)
 
 
+def smart_projection(line, market_key):
+    if market_key == "player_points":
+        return round(line * 1.08, 1)
+    if market_key == "player_rebounds":
+        return round(line * 1.10, 1)
+    if market_key == "player_assists":
+        return round(line * 1.07, 1)
+    if market_key == "player_threes":
+        return round(line * 1.09, 1)
+    if market_key == "player_blocks":
+        return round(line * 1.12, 1)
+    if market_key == "player_steals":
+        return round(line * 1.12, 1)
+    if market_key == "player_turnovers":
+        return round(line * 1.06, 1)
+    if market_key == "player_blocks_steals":
+        return round(line * 1.10, 1)
+    if market_key == "player_points_assists":
+        return round(line * 1.06, 1)
+    if market_key == "player_points_rebounds":
+        return round(line * 1.07, 1)
+    if market_key == "player_rebounds_assists":
+        return round(line * 1.08, 1)
+    if market_key == "player_points_rebounds_assists":
+        return round(line * 1.06, 1)
+    if market_key == "player_fantasy_points":
+        return round(line * 1.05, 1)
+    return round(line * 1.05, 1)
+
+
+def model_probability(line, projection):
+    diff = projection - line
+    prob = 0.50 + (diff * 0.04)
+    return max(0.25, min(0.80, prob))
+
+
 def market_label(key):
     mapping = {
         "player_points": "PTS",
@@ -129,23 +167,67 @@ def make_pick_key(player, market_key, side, line, game_date):
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+def extract_favorite_underdog(event):
+    """
+    Uses h2h prices across books to estimate favorite / underdog.
+    Lower implied price = better odds for the bettor, but higher implied probability
+    means more likely to win. We average implied probability by team.
+    """
+    away_team = event.get("away_team", "Away")
+    home_team = event.get("home_team", "Home")
+
+    team_probs = {
+        away_team: [],
+        home_team: [],
+    }
+
+    for bookmaker in event.get("bookmakers", []):
+        for market in bookmaker.get("markets", []):
+            if market.get("key") != "h2h":
+                continue
+
+            for outcome in market.get("outcomes", []):
+                team_name = outcome.get("name")
+                price = outcome.get("price")
+
+                if team_name in team_probs and price is not None:
+                    team_probs[team_name].append(implied_prob(price))
+
+    away_avg = (
+        sum(team_probs[away_team]) / len(team_probs[away_team])
+        if team_probs[away_team] else None
+    )
+    home_avg = (
+        sum(team_probs[home_team]) / len(team_probs[home_team])
+        if team_probs[home_team] else None
+    )
+
+    if away_avg is None or home_avg is None:
+        return "N/A", "N/A"
+
+    if away_avg > home_avg:
+        return away_team, home_team
+    return home_team, away_team
+
+
 # -----------------------------
-# MARKET COMPARISON ENGINE
+# MARKET / MODEL ENGINE
 # -----------------------------
 def collect_market_candidates(event):
-    """
-    Build groups by player + market + side + line.
-    Then compare prices across books for the exact same outcome.
-    """
     grouped = {}
     game = f"{event.get('away_team', 'Away')} @ {event.get('home_team', 'Home')}"
     game_date = event.get("commence_time", "")
+    favorite, underdog = extract_favorite_underdog(event)
 
     for bookmaker in event.get("bookmakers", []):
         book_name = bookmaker.get("title", "Book")
 
         for market in bookmaker.get("markets", []):
             market_key = market.get("key")
+
+            if market_key == "h2h":
+                continue
+
             outcomes = market.get("outcomes", [])
 
             for outcome in outcomes:
@@ -167,24 +249,22 @@ def collect_market_candidates(event):
     plays = []
 
     for (player, market_key, side, line), books in grouped.items():
-        if len(books) < 2:
+        if len(books) < 1:
             continue
 
-        # Best bettor-friendly odds:
-        # for negative odds, closer to zero is better (e.g. -105 better than -130)
-        # for positive odds, bigger is better (e.g. +110 better than +100)
         best = max(books, key=lambda x: x["odds"])
         avg_prob = sum(b["implied_prob"] for b in books) / len(books)
         best_prob = best["implied_prob"]
 
-        # "Discrepancy" here = consensus market implied probability minus
-        # the implied probability of the best available price.
-        discrepancy = round((avg_prob - best_prob) * 100, 1)
+        projection = smart_projection(line, market_key)
+        model_prob = model_probability(line, projection)
 
-        if discrepancy < 2.0:
+        discrepancy = round((model_prob - best_prob) * 100, 1)
+
+        if discrepancy < 4.0:
             continue
 
-        tag = "🔥 MAX PLAY" if discrepancy >= 5 else "✅ STRONG"
+        tag = "🔥 MAX PLAY" if discrepancy >= 8 else "✅ STRONG"
 
         key = make_pick_key(player, market_key, side, line, game_date)
         if key in sent_picks:
@@ -197,6 +277,8 @@ def collect_market_candidates(event):
             "market_key": market_key,
             "side": side,
             "line": line,
+            "projection": projection,
+            "model_prob": round(model_prob * 100, 1),
             "best_book": best["book"],
             "best_odds": best["odds"],
             "best_implied": round(best_prob * 100, 1),
@@ -204,6 +286,8 @@ def collect_market_candidates(event):
             "discrepancy": discrepancy,
             "books_compared": len(books),
             "game": game,
+            "favorite": favorite,
+            "underdog": underdog,
             "tag": tag,
         })
 
@@ -244,18 +328,18 @@ def run_bot():
         return
 
     for play in all_plays:
-        if play["discrepancy"] >= 5:
+        if play["discrepancy"] >= 8:
             color = 0x00FF00
-        elif play["discrepancy"] >= 3:
+        elif play["discrepancy"] >= 6:
             color = 0x0099FF
         else:
             color = 0xFF9900
 
-        if play["stat"] in ["PTS", "PA", "PR", "PRA"]:
+        if play["stat"] in ["PTS", "PA", "PR", "PRA", "FP"]:
             emoji = "🏀"
-        elif play["stat"] in ["REB", "RA", "B+S"]:
+        elif play["stat"] in ["REB", "RA", "B+S", "BLK", "STL"]:
             emoji = "💪"
-        elif play["stat"] in ["AST"]:
+        elif play["stat"] in ["AST", "3PM"]:
             emoji = "🎯"
         else:
             emoji = "📊"
@@ -267,10 +351,14 @@ def run_bot():
             "fields": [
                 {"name": "📍 Best Book", "value": play["best_book"], "inline": True},
                 {"name": "💰 Best Odds", "value": str(play["best_odds"]), "inline": True},
-                {"name": "📚 Books Compared", "value": str(play["books_compared"]), "inline": True},
+                {"name": "📊 Projection", "value": str(play["projection"]), "inline": True},
+                {"name": "🧠 Model %", "value": f"{play['model_prob']}%", "inline": True},
                 {"name": "🎯 Best Implied %", "value": f"{play['best_implied']}%", "inline": True},
                 {"name": "📈 Market Avg %", "value": f"{play['market_avg_implied']}%", "inline": True},
                 {"name": "⚡ Discrepancy", "value": f"+{play['discrepancy']}%", "inline": True},
+                {"name": "📚 Books Compared", "value": str(play["books_compared"]), "inline": True},
+                {"name": "⭐ Favorite", "value": play["favorite"], "inline": True},
+                {"name": "🐶 Underdog", "value": play["underdog"], "inline": True},
                 {"name": "🏟️ Game", "value": play["game"], "inline": False},
             ],
             "footer": {
