@@ -1,23 +1,16 @@
 print("🔥 BOT IS LIVE 🔥")
+
 import os
 import requests
 import time
 from datetime import datetime
 
-# =========================
-# ENV VARIABLES (IMPORTANT)
-# =========================
-https://discord.com/api/webhooks/1489528498707107902/c5JMwhIiw8MKPzuljVGxDrkYuLXfQOK7W4kxywI6OoGXWN5DIdGFfiFGxLRQF-iaY0L5 = os.getenv(https://discord.com/api/webhooks/1489528498707107902/c5JMwhIiw8MKPzuljVGxDrkYuLXfQOK7W4kxywI6OoGXWN5DIdGFfiFGxLRQF-iaY0L5)
-5a9123660cf89f2e909112bb43254ea0 = os.getenv(5a9123660cf89f2e909112bb43254ea0)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 
-# =========================
-# TRACK SENT PLAYS
-# =========================
 sent_plays = set()
 
-# =========================
-# BASIC PROBABILITY MODELS
-# =========================
+
 def implied_prob(odds):
     if odds < 0:
         return abs(odds) / (abs(odds) + 100)
@@ -30,21 +23,11 @@ def model_prob(projection, line):
     return max(0.25, min(0.80, prob))
 
 
-# =========================
-# EDGE CALCULATION
-# =========================
 def calc_edge(model_p, vegas_p):
     return (model_p - vegas_p) * 100
 
 
-# =========================
-# FETCH ODDS (PLACEHOLDER)
-# =========================
 def get_props():
-    """
-    Replace this with real Odds API later.
-    For now, sample data to test bot.
-    """
     return [
         {
             "player": "Donovan Mitchell",
@@ -67,37 +50,31 @@ def get_props():
     ]
 
 
-# =========================
-# DISCORD SENDER
-# =========================
 def send_discord(message):
     if not WEBHOOK_URL:
         print("Missing WEBHOOK_URL")
         return
 
-    requests.post(WEBHOOK_URL, json={"content": message})
+    response = requests.post(WEBHOOK_URL, json={"content": message})
+    print("Discord status:", response.status_code)
+    print("Discord response:", response.text)
 
 
-# =========================
-# BOT LOGIC
-# =========================
 def run_bot():
+    print("🚀 run_bot started")
+
     props = get_props()
     plays = []
 
     for p in props:
-
         vegas_p = implied_prob(p["odds"])
         model_p = model_prob(p["projection"], p["line"])
-
         edge = calc_edge(model_p, vegas_p)
 
         play_key = f"{p['player']}_{p['line']}"
 
-        # FILTER (PRO LEVEL)
         if edge >= 6 and play_key not in sent_plays:
             sent_plays.add(play_key)
-
             plays.append({
                 "player": p["player"],
                 "line": p["line"],
@@ -108,6 +85,8 @@ def run_bot():
             })
 
     if not plays:
+        print("No plays found. Sending test message.")
+        send_discord("✅ Bot is running, but no plays passed the filter.")
         return
 
     message = f"🔥 **PRO NBA PICKS** — {datetime.now().strftime('%I:%M %p')}\n\n"
@@ -123,10 +102,7 @@ def run_bot():
     send_discord(message)
 
 
-# =========================
-# LIVE LOOP
-# =========================
 if __name__ == "__main__":
     while True:
-        run_bot(send_discord("✅ Bot is alive and connected"))
-        time.sleep(300)  # runs every 5 minutes
+        run_bot()
+        time.sleep(300)
