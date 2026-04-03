@@ -96,9 +96,9 @@ def run_bot():
             )
 
     if not plays:
-        print("No plays found. Sending test message.")
-        send_discord("✅ Bot is running, but no plays passed the filter.")
-        return
+    print("No plays found. Sending test message.")
+    send_discord("✅ Bot is running, but no plays")
+    return
 
     message = f"🔥 **PRO NBA PICKS** — {datetime.now().strftime('%I:%M %p')}\n\n"
 
