@@ -6,9 +6,6 @@ from datetime import datetime
 
 import requests
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
-
 SPORT = "basketball_nba"
 REGIONS = "us"
 BOOKMAKERS = "draftkings,fanduel"
@@ -32,22 +29,33 @@ SEEN_FILE = "seen_plays.json"
 SEEN_TTL_SECONDS = 6 * 60 * 60
 
 
+def get_webhook_url():
+    return os.getenv("WEBHOOK_URL")
+
+
+def get_odds_api_key():
+    return os.getenv("ODDS_API_KEY")
+
+
 def send_discord_embed(embed):
-    if not WEBHOOK_URL:
-        print("Missing WEBHOOK_URL", flush=True)
+    webhook_url = get_webhook_url()
+
+    if not webhook_url:
+        print("❌ Missing WEBHOOK_URL", flush=True)
         return False
 
     try:
         response = requests.post(
-            WEBHOOK_URL,
+            webhook_url,
             json={"embeds": [embed]},
             timeout=20
         )
         print(f"Discord status: {response.status_code}", flush=True)
         if response.text:
-            print(f"Discord response: {response.text}", flush=True)
+            print(f"Discord response: {response.text[:500]}", flush=True)
         response.raise_for_status()
         return True
+
     except Exception as e:
         print(f"Discord send error: {e}", flush=True)
         return False
@@ -75,6 +83,7 @@ def send_play(play):
 def load_seen():
     if not os.path.exists(SEEN_FILE):
         return {}
+
     try:
         with open(SEEN_FILE, "r") as f:
             return json.load(f)
@@ -83,16 +92,21 @@ def load_seen():
 
 
 def save_seen(seen):
-    with open(SEEN_FILE, "w") as f:
-        json.dump(seen, f, indent=2)
+    try:
+        with open(SEEN_FILE, "w") as f:
+            json.dump(seen, f, indent=2)
+    except Exception as e:
+        print(f"Error saving seen plays: {e}", flush=True)
 
 
 def cleanup_seen(seen):
     now = time.time()
     cleaned = {}
+
     for key, ts in seen.items():
         if now - ts < SEEN_TTL_SECONDS:
             cleaned[key] = ts
+
     return cleaned
 
 
@@ -106,15 +120,19 @@ def make_play_key(play):
 
 def implied_prob(odds):
     odds = int(odds)
+
     if odds > 0:
         return 100 / (odds + 100) * 100
+
     return abs(odds) / (abs(odds) + 100) * 100
 
 
 def american_to_decimal(odds):
     odds = int(odds)
+
     if odds > 0:
         return 1 + (odds / 100)
+
     return 1 + (100 / abs(odds))
 
 
@@ -124,6 +142,7 @@ def estimate_consensus_american(prices):
 
     if avg_decimal >= 2:
         return f"+{int((avg_decimal - 1) * 100)}"
+
     return str(int(-100 / (avg_decimal - 1)))
 
 
@@ -138,44 +157,59 @@ def market_label(key):
 
 
 def get_events():
-    if not ODDS_API_KEY:
-        print("❌ ERROR: ODDS_API_KEY is missing")
+    odds_api_key = get_odds_api_key()
+
+    print("🔑 ODDS_API_KEY loaded:", bool(odds_api_key), flush=True)
+    print("🔑 Key length:", len(odds_api_key) if odds_api_key else 0, flush=True)
+
+    if not odds_api_key:
+        print("❌ ERROR: ODDS_API_KEY is missing", flush=True)
         return []
 
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events"
-
     params = {
-        "apiKey": ODDS_API_KEY,
-        "dateFormat": "iso",
+        "apiKey": odds_api_key,
+        "dateFormat": DATE_FORMAT,
     }
 
     try:
         response = requests.get(url, params=params, timeout=30)
 
-        print("🔑 ODDS_API_KEY loaded:", bool(ODDS_API_KEY))
-        print("🔑 Key length:", len(ODDS_API_KEY) if ODDS_API_KEY else 0)
-
-        print("🌐 Request URL:", response.url)
-        print("📡 Events status:", response.status_code)
+        print("🌐 Events request URL:", response.url, flush=True)
+        print("📡 Events status:", response.status_code, flush=True)
+        print(
+            f"📊 Events requests remaining: {response.headers.get('x-requests-remaining')}",
+            flush=True
+        )
+        print(
+            f"📊 Events requests used: {response.headers.get('x-requests-used')}",
+            flush=True
+        )
 
         if response.text:
-            print("📝 Response:", response.text)
+            print(f"📝 Events response: {response.text[:500]}", flush=True)
 
         response.raise_for_status()
         return response.json()
 
     except requests.exceptions.HTTPError as e:
-        print("❌ HTTP error:", e)
+        print(f"❌ Events HTTP error: {e}", flush=True)
         return []
     except Exception as e:
-        print("❌ General error:", e)
+        print(f"❌ Events general error: {e}", flush=True)
         return []
 
 
 def get_event_props(event_id):
+    odds_api_key = get_odds_api_key()
+
+    if not odds_api_key:
+        print("❌ ERROR: ODDS_API_KEY missing before props request", flush=True)
+        return None
+
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events/{event_id}/odds"
     params = {
-        "apiKey": ODDS_API_KEY,
+        "apiKey": odds_api_key,
         "regions": REGIONS,
         "markets": MARKETS,
         "bookmakers": BOOKMAKERS,
@@ -188,8 +222,14 @@ def get_event_props(event_id):
     print(f"Props status for {event_id}: {response.status_code}", flush=True)
     if response.text:
         print(f"Props response text for {event_id}: {response.text[:500]}", flush=True)
-    print(f"Props requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
-    print(f"Props requests used: {response.headers.get('x-requests-used')}", flush=True)
+    print(
+        f"Props requests remaining: {response.headers.get('x-requests-remaining')}",
+        flush=True
+    )
+    print(
+        f"Props requests used: {response.headers.get('x-requests-used')}",
+        flush=True
+    )
 
     response.raise_for_status()
     return response.json()
@@ -212,6 +252,7 @@ def group_outcomes_by_player(event_odds):
 
                 if not player or side not in ("Over", "Under"):
                     continue
+
                 if line is None or price is None:
                     continue
 
@@ -263,6 +304,9 @@ def find_best_edges(event_odds):
 
 
 def run_bot():
+    print("Cycle env check - WEBHOOK_URL:", bool(get_webhook_url()), flush=True)
+    print("Cycle env check - ODDS_API_KEY:", bool(get_odds_api_key()), flush=True)
+
     seen = cleanup_seen(load_seen())
 
     try:
@@ -286,9 +330,14 @@ def run_bot():
 
             try:
                 event_odds = get_event_props(event_id)
+
+                if not event_odds:
+                    continue
+
                 plays = find_best_edges(event_odds)
                 all_plays.extend(plays)
                 time.sleep(EVENT_DELAY_SECONDS)
+
             except requests.HTTPError as e:
                 print(f"HTTP error on event {event_id}: {e}", flush=True)
                 time.sleep(3)
@@ -299,6 +348,7 @@ def run_bot():
         all_plays.sort(key=lambda x: x["edge"], reverse=True)
 
         sent_count = 0
+
         for play in all_plays:
             play_key = make_play_key(play)
 
@@ -316,6 +366,7 @@ def run_bot():
 
     except requests.HTTPError as e:
         response = getattr(e, "response", None)
+
         if response is not None and response.status_code == 429:
             print("Hit 429 rate limit. Sleeping 15 minutes.", flush=True)
             time.sleep(900)
@@ -329,15 +380,17 @@ def run_bot():
 
 
 if __name__ == "__main__":
-    print("Webhook loaded:", bool(WEBHOOK_URL), flush=True)
-    print("API key loaded:", bool(ODDS_API_KEY), flush=True)
-
     while True:
         try:
             print(f"\n--- Bot cycle started at {datetime.now()} ---", flush=True)
+            print("Startup check - WEBHOOK_URL:", bool(get_webhook_url()), flush=True)
+            print("Startup check - ODDS_API_KEY:", bool(get_odds_api_key()), flush=True)
+
             run_bot()
+
             print(f"Sleeping {SLEEP_SECONDS} seconds...\n", flush=True)
             time.sleep(SLEEP_SECONDS)
+
         except Exception as e:
             print(f"MAIN LOOP ERROR: {e}", flush=True)
             time.sleep(60)
