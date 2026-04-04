@@ -138,22 +138,38 @@ def market_label(key):
 
 
 def get_events():
+    if not ODDS_API_KEY:
+        print("❌ ERROR: ODDS_API_KEY is missing")
+        return []
+
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/events"
+
     params = {
         "apiKey": ODDS_API_KEY,
-        "dateFormat": DATE_FORMAT,
+        "dateFormat": "iso",
     }
 
-    response = requests.get(url, params=params, timeout=30)
+    try:
+        response = requests.get(url, params=params, timeout=30)
 
-    print(f"Events status: {response.status_code}", flush=True)
-    if response.text:
-        print(f"Events response text: {response.text[:500]}", flush=True)
-    print(f"Events requests remaining: {response.headers.get('x-requests-remaining')}", flush=True)
-    print(f"Events requests used: {response.headers.get('x-requests-used')}", flush=True)
+        print("🔑 ODDS_API_KEY loaded:", bool(ODDS_API_KEY))
+        print("🔑 Key length:", len(ODDS_API_KEY) if ODDS_API_KEY else 0)
 
-    response.raise_for_status()
-    return response.json()
+        print("🌐 Request URL:", response.url)
+        print("📡 Events status:", response.status_code)
+
+        if response.text:
+            print("📝 Response:", response.text)
+
+        response.raise_for_status()
+        return response.json()
+
+    except requests.exceptions.HTTPError as e:
+        print("❌ HTTP error:", e)
+        return []
+    except Exception as e:
+        print("❌ General error:", e)
+        return []
 
 
 def get_event_props(event_id):
