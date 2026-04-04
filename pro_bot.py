@@ -1,10 +1,16 @@
 import os
+import sys
 import time
 import json
 import hashlib
 from datetime import datetime
 
 import requests
+
+# 🚫 KILL SWITCH
+if os.getenv("BOT_ENABLED", "true").lower() != "true":
+    print("Bot is disabled. Exiting...")
+    sys.exit(0)
 
 SPORT = "basketball_nba"
 REGIONS = "us"
