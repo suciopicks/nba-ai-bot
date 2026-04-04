@@ -8,7 +8,7 @@ import requests
 
 SPORT = "basketball_nba"
 REGIONS = "us"
-BOOKMAKERS = "draftkings,fanduel"
+BOOKMAKERS = "draftkings,fanduel,betmgm,caesars"
 MARKETS = ",".join([
     "player_points",
     "player_rebounds",
