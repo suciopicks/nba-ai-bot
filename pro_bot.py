@@ -117,9 +117,11 @@ def cleanup_seen(seen):
 
 
 def make_play_key(play):
+    # IMPORTANT:
+    # side and best_book are intentionally NOT included
+    # so Over/Under duplicates for the same prop don't both get sent
     raw = (
-        f"{play['game_id']}|{play['player']}|{play['market_key']}|"
-        f"{play['side']}|{play['line']}|{play['best_book']}"
+        f"{play['game_id']}|{play['player']}|{play['market_key']}|{play['line']}"
     )
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -271,6 +273,28 @@ def group_outcomes_by_player(event_odds):
     return grouped
 
 
+def dedupe_best_side(plays):
+    """
+    Keep only the best side for each player+market+line+game.
+    This removes Over/Under duplicate sends for the same prop.
+    """
+    best_by_prop = {}
+
+    for play in plays:
+        key = (
+            play["game_id"],
+            play["player"].strip().lower(),
+            play["market_key"],
+            float(play["line"]),
+        )
+
+        current = best_by_prop.get(key)
+        if current is None or play["edge"] > current["edge"]:
+            best_by_prop[key] = play
+
+    return list(best_by_prop.values())
+
+
 def find_best_edges(event_odds):
     plays = []
     grouped = group_outcomes_by_player(event_odds)
@@ -305,6 +329,9 @@ def find_best_edges(event_odds):
             "edge": edge,
         }
         plays.append(play)
+
+    # Remove Over/Under duplicates and keep only the higher-edge side
+    plays = dedupe_best_side(plays)
 
     return plays
 
@@ -351,6 +378,8 @@ def run_bot():
                 print(f"Unexpected event error on {event_id}: {e}", flush=True)
                 time.sleep(3)
 
+        # Safety dedupe again across all events
+        all_plays = dedupe_best_side(all_plays)
         all_plays.sort(key=lambda x: x["edge"], reverse=True)
 
         sent_count = 0
@@ -367,7 +396,7 @@ def run_bot():
                 time.sleep(DISCORD_DELAY_SECONDS)
 
         save_seen(seen)
-        print(f"Total plays found: {len(all_plays)}", flush=True)
+        print(f"Total plays found after dedupe: {len(all_plays)}", flush=True)
         print(f"Sent plays: {sent_count}", flush=True)
 
     except requests.HTTPError as e:
