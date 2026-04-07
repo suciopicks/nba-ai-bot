@@ -30,6 +30,7 @@ SLEEP_SECONDS = 300
 EVENT_DELAY_SECONDS = 2
 DISCORD_DELAY_SECONDS = 1.5
 MAX_EVENTS_PER_CYCLE = 10
+MAX_PLAYS_TO_SEND = 5   # ✅ send only top 5 plays per cycle
 
 SEEN_FILE = "seen_plays.json"
 SEEN_TTL_SECONDS = 6 * 60 * 60
@@ -117,9 +118,6 @@ def cleanup_seen(seen):
 
 
 def make_play_key(play):
-    # IMPORTANT:
-    # side and best_book are intentionally NOT included
-    # so Over/Under duplicates for the same prop don't both get sent
     raw = (
         f"{play['game_id']}|{play['player']}|{play['market_key']}|{play['line']}"
     )
@@ -274,10 +272,6 @@ def group_outcomes_by_player(event_odds):
 
 
 def dedupe_best_side(plays):
-    """
-    Keep only the best side for each player+market+line+game.
-    This removes Over/Under duplicate sends for the same prop.
-    """
     best_by_prop = {}
 
     for play in plays:
@@ -330,9 +324,7 @@ def find_best_edges(event_odds):
         }
         plays.append(play)
 
-    # Remove Over/Under duplicates and keep only the higher-edge side
     plays = dedupe_best_side(plays)
-
     return plays
 
 
@@ -378,9 +370,11 @@ def run_bot():
                 print(f"Unexpected event error on {event_id}: {e}", flush=True)
                 time.sleep(3)
 
-        # Safety dedupe again across all events
         all_plays = dedupe_best_side(all_plays)
         all_plays.sort(key=lambda x: x["edge"], reverse=True)
+
+        # ✅ keep only top 5 plays
+        all_plays = all_plays[:MAX_PLAYS_TO_SEND]
 
         sent_count = 0
 
@@ -396,7 +390,7 @@ def run_bot():
                 time.sleep(DISCORD_DELAY_SECONDS)
 
         save_seen(seen)
-        print(f"Total plays found after dedupe: {len(all_plays)}", flush=True)
+        print(f"Top plays kept this cycle: {len(all_plays)}", flush=True)
         print(f"Sent plays: {sent_count}", flush=True)
 
     except requests.HTTPError as e:
